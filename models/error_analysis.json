@@ -1,0 +1,89 @@
+{
+  "false_positives": [
+    {
+      "text": "can you help me write a cover letter for a software engineering role?",
+      "confidence": 0.5024651703813203
+    },
+    {
+      "text": "explain how neural networks work in simple terms.",
+      "confidence": 0.5190268506267285
+    },
+    {
+      "text": "summarize the plot of romeo and juliet.",
+      "confidence": 0.5261960858644761
+    },
+    {
+      "text": "give me a recipe for chocolate chip cookies.",
+      "confidence": 0.5192667078111112
+    },
+    {
+      "text": "write a poem about the ocean.",
+      "confidence": 0.5169056745681208
+    },
+    {
+      "text": "can you proofread this paragraph for me?",
+      "confidence": 0.5618993455039261
+    },
+    {
+      "text": "explain the difference between tcp and udp.",
+      "confidence": 0.5133283215292939
+    },
+    {
+      "text": "help me plan a 7-day trip to japan.",
+      "confidence": 0.5388619836901936
+    },
+    {
+      "text": "write a function to check if a string is a palindrome.",
+      "confidence": 0.6374889717477789
+    },
+    {
+      "text": "can you suggest a workout plan for beginners?",
+      "confidence": 0.6017167010277359
+    },
+    {
+      "text": "translate 'good morning' into spanish, french, and japanese.",
+      "confidence": 0.5474089613720409
+    },
+    {
+      "text": "help me debug this python error: typeerror: unsupported operand type.",
+      "confidence": 0.5371946057766497
+    },
+    {
+      "text": "explain what docker containers are and why they are useful.",
+      "confidence": 0.5495606513056241
+    },
+    {
+      "text": "write a short story about a robot who learns to paint.",
+      "confidence": 0.5453098037561118
+    },
+    {
+      "text": "give me five name ideas for a tech startup.",
+      "confidence": 0.5202412305232181
+    },
+    {
+      "text": "can you write a linkedin summary for a data analyst?",
+      "confidence": 0.5143102917220514
+    },
+    {
+      "text": "what programming language should i learn first?",
+      "confidence": 0.526698979994522
+    },
+    {
+      "text": "explain gradient descent in machine learning.",
+      "confidence": 0.5101388199162958
+    },
+    {
+      "text": "how do i read a csv file in pandas?",
+      "confidence": 0.5153137833267116
+    },
+    {
+      "text": "can you write a sql query to find duplicate rows in a table?",
+      "confidence": 0.5248515610029488
+    },
+    {
+      "text": "help me write an email to reschedule a meeting.",
+      "confidence": 0.5300537614755801
+    }
+  ],
+  "false_negatives": []
+}

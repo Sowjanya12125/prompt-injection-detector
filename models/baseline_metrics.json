@@ -1,19 +1,15 @@
 {
   "model": "TF-IDF + Logistic Regression",
-  "train_size": 120,
-  "test_size": 30,
-  "precision": 0.8,
-  "recall": 1.0,
-  "f1": 0.8889,
-  "false_positive_rate": 0.5,
-  "confusion_matrix": [
-    [
-      5,
-      5
-    ],
-    [
-      0,
-      20
-    ]
-  ]
+  "dataset_size": 150,
+  "cv_f1_mean": 0.8483,
+  "cv_f1_std": 0.0267,
+  "roc_auc": 0.9998,
+  "false_positive_rate": 0.42,
+  "false_negative_rate": 0.0,
+  "confusion_matrix": {
+    "tn": 29,
+    "fp": 21,
+    "fn": 0,
+    "tp": 100
+  }
 }
