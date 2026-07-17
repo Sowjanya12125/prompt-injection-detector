@@ -19,6 +19,7 @@ PROCESSED_DIR = Path("data/processed")
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 INJECTIONS_FILE = RAW_DIR / "injections.json"
+INJECTIONS_V2_FILE = RAW_DIR / "injections_v2.json"
 BENIGN_FILE = RAW_DIR / "benign.json"
 OUTPUT_CSV = PROCESSED_DIR / "dataset.csv"
 
@@ -48,9 +49,10 @@ def load_json(filepath: Path) -> list[dict]:
 def build_dataset() -> list[dict]:
     """Merge injections + benign, clean text, deduplicate."""
     injections = load_json(INJECTIONS_FILE)
+    injections_v2 = load_json(INJECTIONS_V2_FILE)
     benign = load_json(BENIGN_FILE)
 
-    combined = injections + benign
+    combined = injections + injections_v2 + benign
     print(f"[INFO] Total raw examples: {len(combined)}")
 
     seen = set()
