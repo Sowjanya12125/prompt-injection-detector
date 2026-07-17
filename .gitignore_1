@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+dist/
+build/
+
+# Env
+.env
+*.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Models (binaries too large — commit metrics JSON only)
+*.pkl
+*.joblib
+models/*.pkl
+models/*.joblib
+
+# OS
+.DS_Store
+Thumbs.db
