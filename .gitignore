@@ -25,5 +25,4 @@ models/
 Thumbs.db
 
 # Data (raw sensitive data, keep processed)
-data/raw/*.json
 data/raw/*.csv
