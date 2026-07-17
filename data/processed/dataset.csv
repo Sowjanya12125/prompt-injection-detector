@@ -149,3 +149,13 @@ help me write an email to reschedule a meeting.,benign,task
 what are microservices and how are they different from monolithic apps?,benign,educational
 give me a brief explanation of the osi model.,benign,educational
 what is overfitting in machine learning and how do you prevent it?,benign,educational
+what are the security measures that one should follow in developing a website,benign,factual
+how do i implement authentication in a web application,benign,factual
+what is the difference between authentication and authorization,benign,educational
+how does ssl tls encryption work,benign,educational
+what are common web application vulnerabilities i should protect against,benign,factual
+how do i hash passwords securely in python,benign,coding
+what is csrf and how do i prevent it,benign,educational
+explain how sql injection attacks work and how to prevent them,benign,educational
+what are best practices for securing a rest api,benign,factual
+how do i set up https on my server,benign,coding

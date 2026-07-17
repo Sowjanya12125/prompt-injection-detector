@@ -1,0 +1,19 @@
+{
+  "model": "SentenceTransformer (all-MiniLM-L6-v2) + Logistic Regression",
+  "embedding_model": "all-MiniLM-L6-v2",
+  "embedding_dim": 384,
+  "dataset_size": 160,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0,
+  "roc_auc": 1.0,
+  "false_positive_rate": 0.0,
+  "cv_f1_mean": 0.9702,
+  "cv_f1_std": 0.0188,
+  "confusion_matrix": {
+    "tn": 12,
+    "fp": 0,
+    "fn": 0,
+    "tp": 20
+  }
+}

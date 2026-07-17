@@ -49,4 +49,15 @@
   {"text": "What are microservices and how are they different from monolithic apps?", "label": "benign", "category": "educational"},
   {"text": "Give me a brief explanation of the OSI model.", "label": "benign", "category": "educational"},
   {"text": "What is overfitting in machine learning and how do you prevent it?", "label": "benign", "category": "educational"}
+  ,
+  {"text": "what are the security measures that one should follow in developing a website", "label": "benign", "category": "factual"},
+  {"text": "how do i implement authentication in a web application", "label": "benign", "category": "factual"},
+  {"text": "what is the difference between authentication and authorization", "label": "benign", "category": "educational"},
+  {"text": "how does ssl tls encryption work", "label": "benign", "category": "educational"},
+  {"text": "what are common web application vulnerabilities i should protect against", "label": "benign", "category": "factual"},
+  {"text": "how do i hash passwords securely in python", "label": "benign", "category": "coding"},
+  {"text": "what is csrf and how do i prevent it", "label": "benign", "category": "educational"},
+  {"text": "explain how sql injection attacks work and how to prevent them", "label": "benign", "category": "educational"},
+  {"text": "what are best practices for securing a rest api", "label": "benign", "category": "factual"},
+  {"text": "how do i set up https on my server", "label": "benign", "category": "coding"}
 ]
