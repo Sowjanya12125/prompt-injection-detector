@@ -25,7 +25,7 @@ import numpy as np
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
@@ -291,3 +291,12 @@ def stats():
             sum(e.get("latency_ms", 0) for e in entries) / total, 2
         ) if total > 0 else 0,
     }
+
+
+@app.get("/demo", response_class=FileResponse)
+def demo_ui():
+    """Serve the live demo UI."""
+    demo_path = Path("demo/index.html")
+    if not demo_path.exists():
+        raise HTTPException(status_code=404, detail="Demo UI not found.")
+    return FileResponse(demo_path)
