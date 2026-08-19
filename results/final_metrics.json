@@ -1,0 +1,14 @@
+{
+  "overall_f1": {
+    "TF-IDF": 0.9569,
+    "Embedding": 0.9851,
+    "Hybrid (ML+LLM)": 0.9247
+  },
+  "llm_calls": 16,
+  "total_examples": 160,
+  "llm_call_rate": 0.1,
+  "routing_thresholds": {
+    "low": 0.45,
+    "high": 0.75
+  }
+}

@@ -1,0 +1,16 @@
+,TF-IDF F1,Embedding F1,Hybrid (ML+LLM) F1
+authority_claim,0.609,0.875,0.727
+data_exfiltration,0.64,0.889,1.0
+direct,0.69,0.909,1.0
+emotional_manipulation,0.526,0.833,0.889
+gradual_escalation,0.571,0.769,0.5
+indirect,0.571,0.857,1.0
+jailbreak_persona,0.69,0.909,1.0
+multi_turn_subtle,0.69,0.909,0.947
+obfuscated,0.571,0.857,0.909
+output_manipulation,0.609,0.875,0.833
+prompt_hijack,0.571,0.857,1.0
+roleplay_escalation,0.609,0.875,0.833
+social_engineering,0.609,0.875,1.0
+trigger_word,0.526,0.833,1.0
+Benign (FPR),0.15,0.033,0.0
