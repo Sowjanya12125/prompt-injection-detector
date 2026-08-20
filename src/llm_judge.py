@@ -142,16 +142,21 @@ def generate(prompt: str, max_new_tokens: int = 250, temperature: float = 0.05) 
 
 def parse_json_response(raw: str) -> dict:
     """Robust JSON parser — handles the common ways an LLM breaks strict JSON
-    output (extra prose, markdown fences, trailing commas)."""
+    output (extra prose, markdown fences, trailing commas, or valid-but-wrong-
+    shaped JSON like "null"/"42"/"[]")."""
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
     except json.JSONDecodeError:
         pass
 
     match = re.search(r"\{[^{}]*\}", raw, re.DOTALL)
     if match:
         try:
-            return json.loads(match.group())
+            parsed = json.loads(match.group())
+            if isinstance(parsed, dict):
+                return parsed
         except json.JSONDecodeError:
             pass
 

@@ -230,3 +230,8 @@
 2026-07-21 15:19:34,135 [INFO] Classifier loaded from models\embedding_classifier.pkl
 2026-07-21 15:19:34,135 [INFO] Embedding model: all-MiniLM-L6-v2
 2026-07-21 15:19:34,136 [INFO] Block threshold: 0.65
+2026-08-20 12:15:43,965 [INFO] Use pytorch device_name: cpu
+2026-08-20 12:15:43,965 [INFO] Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2026-08-20 12:15:46,591 [INFO] ML classifier (embedding) loaded.
+2026-08-20 12:15:46,591 [INFO] Routing thresholds: low=0.45, high=0.75
+2026-08-20 12:15:46,591 [WARNING] ENABLE_LLM_JUDGE=true but no CUDA GPU detected. Borderline requests will be marked REVIEW instead of getting a second opinion.

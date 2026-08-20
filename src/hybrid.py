@@ -31,7 +31,11 @@ import pandas as pd
 from sklearn.metrics import f1_score, confusion_matrix
 
 from src.classifier_v2 import load_model as load_ml_model, predict as ml_predict
-from src.llm_judge import judge as llm_judge
+
+# NOTE: src.llm_judge (and therefore torch/transformers) is imported lazily
+# inside route(), not here at module level. This lets src.hybrid be imported
+# — and its routing logic tested — on a machine with no GPU and no
+# torch/transformers installed. Same pattern as src/proxy.py.
 
 # ── Config ───────────────────────────────────────────────────────────────────
 LOW_THRESHOLD = 0.45
@@ -45,9 +49,16 @@ RESULTS_PATH = Path("results") / "full_evaluation_results.csv"
 
 
 # ── Router ───────────────────────────────────────────────────────────────────
-def route(text: str, embed_model, clf, low: float = LOW_THRESHOLD, high: float = HIGH_THRESHOLD) -> dict:
+def route(text: str, embed_model, clf, low: float = LOW_THRESHOLD, high: float = HIGH_THRESHOLD,
+          judge_fn=None) -> dict:
     """
     Routes a single prompt through the hybrid pipeline.
+
+    `judge_fn` is optional dependency injection for testing: pass a mock
+    callable (text -> dict with a "verdict" key) to exercise the borderline
+    branch without needing torch/transformers/a GPU. When omitted, the real
+    LLM judge (src/llm_judge.py) is imported lazily and used.
+
     Returns a dict with verdict, source ("ML" or "LLM"), is_injection, and
     supporting detail (ml_risk_score always included; llm fields only when
     the LLM judge was actually invoked).
@@ -75,8 +86,10 @@ def route(text: str, embed_model, clf, low: float = LOW_THRESHOLD, high: float =
             "reasoning": f"ML risk score {risk_score:.2f} above {high} — blocked directly.",
         }
 
-    # Borderline — escalate to the LLM judge
-    judge_result = llm_judge(text)
+    # Borderline — escalate to the LLM judge (imported lazily unless injected)
+    if judge_fn is None:
+        from src.llm_judge import judge as judge_fn
+    judge_result = judge_fn(text)
     judge_result["source"] = "LLM"
     judge_result["ml_risk_score"] = risk_score
     return judge_result
