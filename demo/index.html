@@ -315,6 +315,7 @@
   .result-card{display:none;}
   .result-card.blocked{--rc:var(--danger);}
   .result-card.allowed{--rc:var(--success);}
+  .result-card.review{--rc:var(--gold);}
   .result-card .rc-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;}
   .result-card .rc-verdict{font-family:var(--display);font-size:19px;font-weight:600;color:var(--rc);line-height:1.2;}
   .result-card .rc-meta{font-size:11.5px;color:var(--neutral);margin-top:5px;font-family:var(--mono);}
@@ -337,10 +338,12 @@
   .hist-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
   .hist-dot.b{background:var(--danger);}
   .hist-dot.a{background:var(--success);}
+  .hist-dot.r{background:var(--gold);}
   .hist-txt{flex:1;font-size:12px;color:var(--neutral);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .hist-conf{font-family:var(--mono);font-size:12px;font-weight:600;flex-shrink:0;}
   .hist-conf.b{color:var(--danger);}
   .hist-conf.a{color:var(--success);}
+  .hist-conf.r{color:var(--gold);}
 
   /* ---------- cards row (how detection works) ---------- */
   .card-3{grid-column:span 4;}
@@ -587,6 +590,7 @@
       <div class="scan-stats">
         <div class="scan-stat"><b id="sTotal">0</b><span>Scanned</span></div>
         <div class="scan-stat"><b id="sBlocked" style="color:var(--danger);">0</b><span>Blocked</span></div>
+        <div class="scan-stat"><b id="sReview" style="color:var(--gold);">0</b><span>Review</span></div>
         <div class="scan-stat"><b id="sAllowed" style="color:var(--success);">0</b><span>Allowed</span></div>
         <div class="scan-stat"><b id="sRate">—</b><span>Block rate</span></div>
       </div>
@@ -922,7 +926,7 @@
 
 /* ================= live scanner (real API) ================= */
 const SCAN_API = 'http://localhost:8000';
-let scanHistory = [], scanTotal = 0, scanBlocked = 0;
+let scanHistory = [], scanTotal = 0, scanBlocked = 0, scanReview = 0;
 
 function fillPrompt(t){
   const el = document.getElementById('scan-input');
@@ -956,7 +960,7 @@ async function runScan(){
     setApiNote('online', 'Connected to localhost:8000');
     showScanResult(d, text);
     addScanHistory(d, text);
-    updateScanStats(d.is_injection);
+    updateScanStats(d);
   } catch(err){
     setApiNote('offline', "Can't reach the API on localhost:8000 — start the backend to see live results.");
   } finally {
@@ -970,11 +974,27 @@ function showScanResult(d, text){
   document.getElementById('result-placeholder').style.display = 'none';
   const card = document.getElementById('result-card');
   card.style.display = 'block';
-  card.className = 'result-card ' + (d.is_injection ? 'blocked' : 'allowed');
-  document.getElementById('rc-verdict').textContent = d.is_injection ? 'Injection detected' : 'Benign prompt';
-  document.getElementById('rc-meta').textContent = `Confidence ${(d.confidence*100).toFixed(1)}% · threshold ${d.threshold}`;
-  document.getElementById('rc-badge').textContent = d.is_injection ? 'BLOCKED' : 'ALLOWED';
-  const pct = (d.confidence*100).toFixed(1);
+
+  const verdict = d.verdict || (d.is_injection ? 'BLOCK' : 'ALLOW'); // fallback for older API responses
+  const cls = {BLOCK:'blocked', REVIEW:'review', ALLOW:'allowed'}[verdict] || 'allowed';
+  const verdictText = {BLOCK:'Injection detected', REVIEW:'Held for review', ALLOW:'Benign prompt'}[verdict];
+  const badgeText = {BLOCK:'BLOCKED', REVIEW:'REVIEW', ALLOW:'ALLOWED'}[verdict];
+
+  card.className = 'result-card ' + cls;
+  document.getElementById('rc-verdict').textContent = verdictText;
+  document.getElementById('rc-badge').textContent = badgeText;
+
+  const pct = ((d.confidence ?? d.ml_risk_score ?? 0) * 100).toFixed(1);
+  const th = d.threshold || {};
+  let meta = `Confidence ${pct}% · source ${d.source || 'ML'}`;
+  if (typeof th.low === 'number' && typeof th.high === 'number') {
+    meta += ` · thresholds ${th.low}\u2013${th.high}`;
+  }
+  if (d.source === 'LLM' && d.reasoning) {
+    meta += ` · "${d.reasoning}"`;
+  }
+  document.getElementById('rc-meta').textContent = meta;
+
   document.getElementById('rc-num').textContent = pct + '%';
   document.getElementById('rc-fill').style.width = '0%';
   setTimeout(()=>{ document.getElementById('rc-fill').style.width = pct + '%'; }, 50);
@@ -985,17 +1005,22 @@ function addScanHistory(d, text){
   if(scanHistory.length > 8) scanHistory.pop();
   document.getElementById('scan-history').style.display = 'block';
   document.getElementById('hist-list').innerHTML = scanHistory.map(h=>{
-    const c = h.is_injection ? 'b' : 'a';
-    return `<div class="hist-item"><div class="hist-dot ${c}"></div><span class="hist-txt">${escapeHtml(h.text)}</span><span class="hist-conf ${c}">${(h.confidence*100).toFixed(0)}%</span></div>`;
+    const verdict = h.verdict || (h.is_injection ? 'BLOCK' : 'ALLOW');
+    const c = {BLOCK:'b', REVIEW:'r', ALLOW:'a'}[verdict] || 'a';
+    const pct = ((h.confidence ?? h.ml_risk_score ?? 0) * 100).toFixed(0);
+    return `<div class="hist-item"><div class="hist-dot ${c}"></div><span class="hist-txt">${escapeHtml(h.text)}</span><span class="hist-conf ${c}">${pct}%</span></div>`;
   }).join('');
 }
 
-function updateScanStats(isInjection){
+function updateScanStats(d){
+  const verdict = d.verdict || (d.is_injection ? 'BLOCK' : 'ALLOW');
   scanTotal++;
-  if(isInjection) scanBlocked++;
+  if(verdict === 'BLOCK') scanBlocked++;
+  else if(verdict === 'REVIEW') scanReview++;
   document.getElementById('sTotal').textContent = scanTotal;
   document.getElementById('sBlocked').textContent = scanBlocked;
-  document.getElementById('sAllowed').textContent = scanTotal - scanBlocked;
+  document.getElementById('sAllowed').textContent = scanTotal - scanBlocked - scanReview;
+  document.getElementById('sReview').textContent = scanReview;
   document.getElementById('sRate').textContent = Math.round((scanBlocked/scanTotal)*100) + '%';
 }
 
@@ -1011,9 +1036,10 @@ document.getElementById('scan-input').addEventListener('keydown', e=>{
   fetch(`${SCAN_API}/stats`).then(r=>r.json()).then(d=>{
     setApiNote('online', 'Connected to localhost:8000');
     if(!d.total_requests) return;
-    scanTotal = d.total_requests; scanBlocked = d.blocked;
+    scanTotal = d.total_requests; scanBlocked = d.blocked; scanReview = d.review || 0;
     document.getElementById('sTotal').textContent = d.total_requests;
     document.getElementById('sBlocked').textContent = d.blocked;
+    document.getElementById('sReview').textContent = scanReview;
     document.getElementById('sAllowed').textContent = d.allowed;
     document.getElementById('sRate').textContent = Math.round(d.block_rate*100) + '%';
   }).catch(()=>{
