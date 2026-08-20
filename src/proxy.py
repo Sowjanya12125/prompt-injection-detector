@@ -1,48 +1,64 @@
 """
-proxy.py - Prompt Injection Detection Proxy
-Sits between the client and any LLM API, intercepting and
-classifying every user message before it reaches the model.
+proxy.py - Prompt Injection Detection Proxy (Hybrid: ML + LLM Judge)
+Sits between the client and any LLM API, routing every user message
+through the hybrid pipeline before it reaches the model:
+
+    User Prompt
+         |
+    ML Classifier (embedding-based, <5ms)   <- src/classifier_v2.py
+         |
+    Risk Score
+         |
+      < LOW_THRESHOLD   -> ALLOW directly, forward to target LLM
+      LOW..HIGH         -> LLM Judge (secondary review)   <- src/llm_judge.py
+      > HIGH_THRESHOLD  -> BLOCK directly, reject request
+         |
+    ALLOW -> forward   REVIEW -> hold for human review   BLOCK -> reject
 
 Usage:
     uvicorn src.proxy:app --reload --port 8000
 
 Then send requests to http://localhost:8000/v1/chat/completions
-instead of directly to OpenAI/Anthropic — same request format, 
+instead of directly to OpenAI/Anthropic — same request format,
 injections get blocked before they reach the LLM.
+
+GPU note: the LLM judge (Mistral-7B) requires a CUDA GPU. If none is
+available, set ENABLE_LLM_JUDGE=false — the proxy will still run on the
+ML layer alone, and any prompt that would have been escalated is
+returned as REVIEW instead of silently allowed or blocked (fail-safe,
+not fail-open).
 """
 
 import json
 import logging
 import os
-import pickle
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 import httpx
-import numpy as np
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
+
+from src.classifier_v2 import load_model as load_ml_model, predict as ml_predict
 
 load_dotenv()
 
-# ── Config ────────────────────────────────────────────────────────────────────
-TARGET_URL      = os.getenv("TARGET_LLM_URL", "https://api.openai.com/v1/chat/completions")
-API_KEY         = os.getenv("OPENAI_API_KEY", "")
-BLOCK_THRESHOLD = float(os.getenv("BLOCK_THRESHOLD", "0.65"))
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+# ── Config ───────────────────────────────────────────────────────────────────
+TARGET_URL = os.getenv("TARGET_LLM_URL", "https://api.openai.com/v1/chat/completions")
+API_KEY = os.getenv("OPENAI_API_KEY", "")
+LOW_THRESHOLD = float(os.getenv("LOW_THRESHOLD", "0.45"))
+HIGH_THRESHOLD = float(os.getenv("HIGH_THRESHOLD", "0.75"))
+ENABLE_LLM_JUDGE = os.getenv("ENABLE_LLM_JUDGE", "true").lower() == "true"
 
-MODEL_DIR       = Path("models")
-CLF_PATH        = MODEL_DIR / "embedding_classifier.pkl"
-LOG_PATH        = Path("logs")
+LOG_PATH = Path("logs")
 LOG_PATH.mkdir(exist_ok=True)
 
-# ── Logging ───────────────────────────────────────────────────────────────────
+# ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -53,28 +69,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── Load model ────────────────────────────────────────────────────────────────
-def load_classifier():
-    if not CLF_PATH.exists():
-        raise FileNotFoundError(
-            f"Classifier not found at {CLF_PATH}. "
-            "Run: python src/classifier_v2.py"
-        )
-    with open(CLF_PATH, "rb") as f:
-        clf = pickle.load(f)
-    embed_model = SentenceTransformer(EMBEDDING_MODEL)
-    logger.info(f"Classifier loaded from {CLF_PATH}")
-    logger.info(f"Embedding model: {EMBEDDING_MODEL}")
-    logger.info(f"Block threshold: {BLOCK_THRESHOLD}")
-    return embed_model, clf
+# ── Load ML layer (always required — this is the fast gate on every request) ──
+embed_model, clf = load_ml_model()
+logger.info("ML classifier (embedding) loaded.")
+logger.info(f"Routing thresholds: low={LOW_THRESHOLD}, high={HIGH_THRESHOLD}")
 
-embed_model, clf = load_classifier()
+# ── Check LLM judge availability (optional — GPU dependent) ────────────────────
+llm_judge_available = False
+if ENABLE_LLM_JUDGE:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            llm_judge_available = True
+            logger.info("LLM judge enabled — GPU detected, Mistral-7B will load lazily on first borderline request.")
+        else:
+            logger.warning("ENABLE_LLM_JUDGE=true but no CUDA GPU detected. "
+                            "Borderline requests will be marked REVIEW instead of getting a second opinion.")
+    except ImportError:
+        logger.warning("ENABLE_LLM_JUDGE=true but torch/transformers not installed. "
+                        "Borderline requests will be marked REVIEW instead of getting a second opinion.")
+else:
+    logger.info("LLM judge disabled (ENABLE_LLM_JUDGE=false). Running ML-only — borderline requests get REVIEW.")
 
-# ── App ───────────────────────────────────────────────────────────────────────
+# ── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Prompt Injection Detection Proxy",
-    description="Real-time adversarial prompt detection sitting between clients and LLM APIs.",
-    version="1.0.0",
+    description="Real-time hybrid (ML + LLM judge) adversarial prompt detection sitting between clients and LLM APIs.",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -84,10 +105,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Request/Response models ───────────────────────────────────────────────────
+
+# ── Request/Response models ─────────────────────────────────────────────────
 class Message(BaseModel):
     role: str
     content: str
+
 
 class ChatRequest(BaseModel):
     model: str = "gpt-3.5-turbo"
@@ -95,43 +118,76 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 500
 
-# ── Detection logic ───────────────────────────────────────────────────────────
-def detect_injection(text: str) -> dict:
-    """Run the classifier on a single text. Returns detection result."""
-    cleaned = text.strip().lower()
-    embedding = embed_model.encode(
-        [cleaned],
-        normalize_embeddings=True,
-        show_progress_bar=False,
-    )
-    prob = float(clf.predict_proba(embedding)[0][1])
-    is_injection = prob >= BLOCK_THRESHOLD
 
-    return {
+# ── Hybrid routing ───────────────────────────────────────────────────────────
+def route_prompt(text: str) -> dict:
+    """
+    Runs the hybrid pipeline on a single prompt. Always returns a dict with:
+    text, verdict (ALLOW/REVIEW/BLOCK), source (ML/LLM), is_injection,
+    ml_risk_score, threshold, action, label, confidence, and reasoning
+    (only present when source == "LLM").
+
+    is_injection/label/action/confidence/threshold are kept for backward
+    compatibility with callers written against the single-classifier proxy.
+    """
+    ml_result = ml_predict(text, embed_model, clf)
+    risk_score = ml_result["confidence"]
+
+    if risk_score < LOW_THRESHOLD:
+        verdict, source, reasoning = "ALLOW", "ML", None
+    elif risk_score > HIGH_THRESHOLD:
+        verdict, source, reasoning = "BLOCK", "ML", None
+    elif llm_judge_available:
+        try:
+            from src.llm_judge import judge as llm_judge_fn
+            judge_result = llm_judge_fn(text)
+            verdict = judge_result["verdict"]
+            source = "LLM"
+            reasoning = judge_result.get("reasoning")
+        except Exception as e:
+            logger.error(f"LLM judge call failed, falling back to REVIEW: {e}")
+            verdict, source, reasoning = "REVIEW", "ML", f"LLM judge error: {e}"
+    else:
+        # No GPU / judge disabled — fail-safe, not fail-open: an ambiguous
+        # prompt with no second opinion available is held for human review,
+        # never silently allowed.
+        verdict, source, reasoning = "REVIEW", "ML", "LLM judge unavailable (no GPU) — held for human review."
+
+    result = {
         "text": text,
-        "confidence": round(prob, 4),
-        "is_injection": is_injection,
-        "threshold": BLOCK_THRESHOLD,
+        "verdict": verdict,
+        "source": source,
+        "ml_risk_score": risk_score,
+        "reasoning": reasoning,
+        # Backward-compatible fields
+        "confidence": risk_score,
+        "threshold": {"low": LOW_THRESHOLD, "high": HIGH_THRESHOLD},
+        "is_injection": verdict == "BLOCK",
+        "label": {"BLOCK": "injection", "ALLOW": "benign", "REVIEW": "review"}[verdict],
+        "action": verdict.lower(),
     }
+    return result
+
 
 def scan_messages(messages: list[Message]) -> dict | None:
     """
-    Scan all user messages in a conversation.
-    Returns detection result for the first injection found, else None.
+    Scan all user messages in a conversation. Returns the first non-ALLOW
+    result (BLOCK or REVIEW) found, else None.
     """
     for msg in messages:
         if msg.role == "user":
-            result = detect_injection(msg.content)
-            if result["is_injection"]:
+            result = route_prompt(msg.content)
+            if result["verdict"] != "ALLOW":
                 return result
     return None
 
-# ── Request logger ────────────────────────────────────────────────────────────
-def log_request(request_id: str, detection: dict | None, blocked: bool, latency_ms: float):
+
+# ── Request logger ───────────────────────────────────────────────────────────
+def log_request(request_id: str, detection: dict | None, verdict: str, latency_ms: float):
     entry = {
         "request_id": request_id,
         "timestamp": datetime.utcnow().isoformat(),
-        "blocked": blocked,
+        "verdict": verdict,
         "latency_ms": round(latency_ms, 2),
         "detection": detection,
     }
@@ -139,46 +195,60 @@ def log_request(request_id: str, detection: dict | None, blocked: bool, latency_
     with open(log_file, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+    if verdict == "REVIEW":
+        review_file = LOG_PATH / "review_queue.jsonl"
+        with open(review_file, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+
+# ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def root():
     return {
         "service": "Prompt Injection Detection Proxy",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "running",
-        "threshold": BLOCK_THRESHOLD,
+        "architecture": "hybrid (embedding classifier + LLM judge)",
+        "threshold": {"low": LOW_THRESHOLD, "high": HIGH_THRESHOLD},
+        "llm_judge_available": llm_judge_available,
         "docs": "/docs",
     }
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model": EMBEDDING_MODEL, "threshold": BLOCK_THRESHOLD}
+    return {
+        "status": "ok",
+        "model": "all-MiniLM-L6-v2 + Mistral-7B-Instruct-v0.2 (hybrid)",
+        "threshold": {"low": LOW_THRESHOLD, "high": HIGH_THRESHOLD},
+        "llm_judge_available": llm_judge_available,
+    }
 
 
 @app.post("/v1/chat/completions")
 async def proxy_chat(request: ChatRequest):
     """
     Drop-in replacement for OpenAI's /v1/chat/completions.
-    Scans all user messages → blocks injections → forwards safe requests to LLM.
+    Routes all user messages through the hybrid pipeline:
+      - ALLOW  -> forwarded to the target LLM
+      - REVIEW -> held for human review (202, not forwarded — fail-safe)
+      - BLOCK  -> rejected (400, not forwarded)
     """
     request_id = str(uuid.uuid4())[:8]
     start = time.time()
 
     logger.info(f"[{request_id}] Received request — {len(request.messages)} messages")
 
-    # ── Scan ──────────────────────────────────────────────────────────────────
     detection = scan_messages(request.messages)
     latency = (time.time() - start) * 1000
 
-    if detection:
+    if detection and detection["verdict"] == "BLOCK":
         logger.warning(
-            f"[{request_id}] BLOCKED — confidence={detection['confidence']:.4f} | "
-            f"text='{detection['text'][:60]}...'"
+            f"[{request_id}] BLOCKED — source={detection['source']} "
+            f"risk={detection['ml_risk_score']:.4f} | text='{detection['text'][:60]}...'"
         )
-        log_request(request_id, detection, blocked=True, latency_ms=latency)
-
+        log_request(request_id, detection, verdict="BLOCK", latency_ms=latency)
         return JSONResponse(
             status_code=400,
             content={
@@ -187,18 +257,41 @@ async def proxy_chat(request: ChatRequest):
                     "code": "injection_blocked",
                     "message": "This request was blocked by the prompt injection detector.",
                     "request_id": request_id,
-                    "confidence": detection["confidence"],
-                    "threshold": BLOCK_THRESHOLD,
+                    "confidence": detection["ml_risk_score"],
+                    "source": detection["source"],
+                    "verdict": detection["verdict"],
+                    "reasoning": detection["reasoning"],
+                    "threshold": detection["threshold"],
                 }
             },
         )
 
-    # ── Forward to LLM ────────────────────────────────────────────────────────
+    if detection and detection["verdict"] == "REVIEW":
+        logger.warning(
+            f"[{request_id}] HELD FOR REVIEW — source={detection['source']} "
+            f"risk={detection['ml_risk_score']:.4f} | text='{detection['text'][:60]}...'"
+        )
+        log_request(request_id, detection, verdict="REVIEW", latency_ms=latency)
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": {
+                    "type": "prompt_pending_review",
+                    "code": "review_required",
+                    "message": "This request was ambiguous and has been held for human review, not forwarded to the LLM.",
+                    "request_id": request_id,
+                    "confidence": detection["ml_risk_score"],
+                    "source": detection["source"],
+                    "reasoning": detection["reasoning"],
+                }
+            },
+        )
+
+    # ── ALLOW — forward to LLM ───────────────────────────────────────────────
     logger.info(f"[{request_id}] ALLOWED — forwarding to LLM")
-    log_request(request_id, detection=None, blocked=False, latency_ms=latency)
+    log_request(request_id, detection=None, verdict="ALLOW", latency_ms=latency)
 
     if not API_KEY:
-        # No API key set — return a mock response for testing
         return {
             "id": f"mock-{request_id}",
             "object": "chat.completion",
@@ -211,7 +304,7 @@ async def proxy_chat(request: ChatRequest):
                 "index": 0,
             }],
             "proxy_meta": {
-                "injection_detected": False,
+                "verdict": "ALLOW",
                 "scan_latency_ms": round(latency, 2),
             },
         }
@@ -228,7 +321,7 @@ async def proxy_chat(request: ChatRequest):
             )
             result = response.json()
             result["proxy_meta"] = {
-                "injection_detected": False,
+                "verdict": "ALLOW",
                 "scan_latency_ms": round(latency, 2),
             }
             return result
@@ -252,23 +345,16 @@ async def detect_only(request: Request):
     if not text:
         raise HTTPException(status_code=400, detail="'text' field is required.")
 
-    result = detect_injection(text)
-    return {
-        "text": text,
-        "label": "injection" if result["is_injection"] else "benign",
-        "confidence": result["confidence"],
-        "is_injection": result["is_injection"],
-        "threshold": BLOCK_THRESHOLD,
-        "action": "block" if result["is_injection"] else "allow",
-    }
+    result = route_prompt(text)
+    return result
 
 
 @app.get("/stats")
 def stats():
-    """Return detection statistics from the log file."""
+    """Return detection statistics from the log file, broken down by verdict and source."""
     log_file = LOG_PATH / "detections.jsonl"
     if not log_file.exists():
-        return {"total_requests": 0, "blocked": 0, "allowed": 0, "block_rate": 0}
+        return {"total_requests": 0, "blocked": 0, "allowed": 0, "review": 0, "block_rate": 0}
 
     entries = []
     with open(log_file) as f:
@@ -278,15 +364,19 @@ def stats():
             except json.JSONDecodeError:
                 continue
 
-    total   = len(entries)
-    blocked = sum(1 for e in entries if e.get("blocked"))
-    allowed = total - blocked
+    total = len(entries)
+    blocked = sum(1 for e in entries if e.get("verdict") == "BLOCK")
+    review = sum(1 for e in entries if e.get("verdict") == "REVIEW")
+    allowed = total - blocked - review
+    llm_calls = sum(1 for e in entries if (e.get("detection") or {}).get("source") == "LLM")
 
     return {
         "total_requests": total,
         "blocked": blocked,
         "allowed": allowed,
+        "review": review,
         "block_rate": round(blocked / total, 4) if total > 0 else 0,
+        "llm_call_rate": round(llm_calls / total, 4) if total > 0 else 0,
         "avg_latency_ms": round(
             sum(e.get("latency_ms", 0) for e in entries) / total, 2
         ) if total > 0 else 0,

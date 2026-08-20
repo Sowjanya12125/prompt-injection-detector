@@ -45,6 +45,7 @@ class TestHealthEndpoints:
         assert data["status"] == "ok"
         assert "model" in data
         assert "threshold" in data
+        assert "llm_judge_available" in data
 
     def test_docs_accessible(self, client):
         r = client.get("/docs")
@@ -57,6 +58,7 @@ class TestHealthEndpoints:
         assert "total_requests" in data
         assert "blocked" in data
         assert "allowed" in data
+        assert "review" in data
 
 
 # ── /detect endpoint ──────────────────────────────────────────────────────────
@@ -162,7 +164,13 @@ class TestChatProxy:
         assert 0.0 <= data["error"]["confidence"] <= 1.0
 
     def test_system_message_not_scanned(self, client):
-        """System messages should not be scanned — only user messages."""
+        """System messages should not be scanned — only user messages.
+        The user message here is benign, so it must not be BLOCKED. It may
+        land as ALLOW (200) or REVIEW (202, if its ML risk score falls in
+        the borderline band and no LLM judge/GPU is available) — either is
+        correct hybrid behavior. What would indicate a real bug is 400
+        (the system message's "ignore all previous instructions" leaking
+        into the scan)."""
         payload = {
             "model": "gpt-3.5-turbo",
             "messages": [
@@ -171,8 +179,10 @@ class TestChatProxy:
             ]
         }
         r = client.post("/v1/chat/completions", json=payload)
-        # User message is benign so it should pass
-        assert r.status_code == 200
+        assert r.status_code in (200, 202), (
+            f"Expected ALLOW or REVIEW for a benign user message, got {r.status_code}. "
+            f"A 400 here would mean the system message was wrongly scanned."
+        )
 
     def test_empty_messages_no_crash(self, client):
         payload = {"model": "gpt-3.5-turbo", "messages": []}
