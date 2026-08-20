@@ -1,0 +1,30 @@
+{
+  "model": "Hybrid (embedding classifier gate + Mistral-7B LLM judge)",
+  "routing_thresholds": {
+    "low": 0.45,
+    "high": 0.75
+  },
+  "dataset_size": 160,
+  "resolved_cases": 159,
+  "f1_resolved": 0.9297,
+  "confusion_matrix_resolved": {
+    "tn": 60,
+    "fp": 0,
+    "fn": 13,
+    "tp": 86
+  },
+  "review_bucket": {
+    "count": 1,
+    "review_rate": 0.0063,
+    "actual_injection": 1,
+    "actual_benign": 0
+  },
+  "llm_calls": 16,
+  "llm_call_rate": 0.1,
+  "comparison": {
+    "tfidf_f1": 0.9569,
+    "embedding_f1": 0.9851,
+    "hybrid_f1_resolved": 0.9297
+  },
+  "known_limitation": "Of the 16 prompts routed to the LLM judge (embed_score in [0.45, 0.75]), 13 were misclassified as ALLOW when the true label was injection. All 13 fall into categories designed to sound legitimate: authority_claim, roleplay_escalation, gradual_escalation, output_manipulation, emotional_manipulation, multi_turn_subtle. The LLM judge's chain-of-thought prompt (V3) does not currently instruct it to disregard claimed authority or fictional/roleplay framing as a decision factor -- see README 'Known Limitations' for detail and proposed future work."
+}
