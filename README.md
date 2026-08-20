@@ -13,7 +13,7 @@ Three layers — a TF-IDF baseline, a semantic embedding classifier, and a chain
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen?style=flat-square)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
 
-[Live Demo](#demo) · [API Docs](#api-reference) · [Architecture](#architecture) · [Results](#results) · [Known Limitations](#known-limitations)
+[Live Demo](demo/screenshot.png) · [API Docs](#api-reference) · [Architecture](#architecture) · [Results](#results) · [Known Limitations](#known-limitations)
 
 </div>
 
